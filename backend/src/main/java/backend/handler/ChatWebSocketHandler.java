@@ -8,8 +8,7 @@ import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
-import java.util.ArrayList;
-import java.util.List;
+import java.util.*;
 
 @Component
 public class ChatWebSocketHandler extends TextWebSocketHandler {
@@ -17,13 +16,13 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
         System.out.println("HANDLER CREATED");
     }
 
-    private final List<WebSocketSession> sessions = new ArrayList<>();
+    private final Map<String, List<WebSocketSession>> rooms = new HashMap<>();
+    private final Map<WebSocketSession, String> sessionRooms = new HashMap<>();
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Override
     public void afterConnectionEstablished(WebSocketSession session)
             throws Exception{
-        sessions.add(session);
         System.out.println("New user connected");
     }
 
@@ -35,13 +34,41 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
                     message.getPayload(),
                     SocketMessage.class
             );
-            System.out.println(socketMessage.getSender());
-            System.out.println(socketMessage.getContent());
+            String type = socketMessage.getType();
+            if(Objects.equals(type, "JOIN")){
+                String roomId = socketMessage.getRoomId();
+                rooms.putIfAbsent(roomId, new ArrayList<>());
+                if(!rooms.get(roomId).contains(session)){
+                    rooms.get(roomId).add(session);
+                }
 
-            String jsonMessage = objectMapper.writeValueAsString(socketMessage);
+                sessionRooms.put(session, roomId);
 
-            for(WebSocketSession s : sessions){
-                s.sendMessage(new TextMessage(jsonMessage));
+                System.out.println(socketMessage.getSender() + " Joined Room " + roomId);
+            }
+
+            if(Objects.equals(type, "CHAT")){
+
+                String jsonMessage = objectMapper.writeValueAsString(socketMessage);
+                String roomId = sessionRooms.get(session);
+
+                List<WebSocketSession> roomSessions = rooms.get(roomId);
+
+                for(WebSocketSession s : roomSessions){
+                    s.sendMessage(new TextMessage(jsonMessage));
+                }
+            }
+            if(Objects.equals(type, "LEAVE")){
+                String roomId = sessionRooms.get(session);
+                if(roomId != null){
+                    rooms.get(roomId).remove(session);
+                    sessionRooms.remove(session);
+
+                    if(rooms.get(roomId).isEmpty()){
+                        rooms.remove(roomId);
+                    }
+                    System.out.println(socketMessage.getSender() + "left the room");
+                }
             }
         } catch (Exception e){
             System.out.println("PARSING ERROR!");
@@ -52,8 +79,15 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
     @Override
     public void afterConnectionClosed(WebSocketSession session, CloseStatus status)
             throws Exception{
-        sessions.remove(session);
+        String roomId = sessionRooms.get(session);
+        if(roomId != null){
+            rooms.get(roomId).remove(session);
+            sessionRooms.remove(session);
+            if(rooms.get(roomId).isEmpty()){
+                rooms.remove(roomId);
+            }
+        }
         System.out.println("User disconnected");
-    }
 
+    }
 }
