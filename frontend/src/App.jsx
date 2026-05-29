@@ -14,10 +14,11 @@ function App() {
         Join Room
       </button>
 
-      <RoomModal
-        isOpen={open}
-        onClose={() => setOpen(false)}
-      />
+      {open && (
+        <RoomModal
+          onClose={() => setOpen(false)}
+        />
+      )}
 
     </div>
   );

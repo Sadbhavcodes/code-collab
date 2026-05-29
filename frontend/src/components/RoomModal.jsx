@@ -12,8 +12,6 @@ export default function RoomModal({
 
     const [socket, setSocket] = useState(null);
 
-    if (!isOpen) return null;
-
     const joinRoom = () => {
         if (!roomId.trim()) return;
 
@@ -62,7 +60,7 @@ export default function RoomModal({
                         {joined ? `Room: ${roomId}` : "Join room"}
                     </h2>
                     <button
-                        onClick={onclose}
+                        onClick={onClose}
                     >
                         ✕
                     </button>
@@ -88,7 +86,7 @@ export default function RoomModal({
                 {joined && (
                     <div>
                         <div>
-                            {messages.map((idx, msg) => (
+                            {messages.map((msg, idx) => (
                                 <p key={idx}> {msg} </p>
                             ))}
                         </div>

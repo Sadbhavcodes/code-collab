@@ -1,6 +1,7 @@
 package backend.handler;
 
 import backend.dto.SocketMessage;
+import backend.service.RoomService;
 import org.springframework.stereotype.Component;
 import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.TextMessage;
@@ -12,7 +13,9 @@ import java.util.*;
 
 @Component
 public class ChatWebSocketHandler extends TextWebSocketHandler {
-    public ChatWebSocketHandler(){
+    private RoomService roomService;
+    public ChatWebSocketHandler(RoomService roomService){
+        this.roomService = roomService;
         System.out.println("HANDLER CREATED");
     }
 
@@ -35,40 +38,18 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
                     SocketMessage.class
             );
             String type = socketMessage.getType();
-            if(Objects.equals(type, "JOIN")){
-                String roomId = socketMessage.getRoomId();
-                rooms.putIfAbsent(roomId, new ArrayList<>());
-                if(!rooms.get(roomId).contains(session)){
-                    rooms.get(roomId).add(session);
-                }
+            switch (type){
+                case "JOIN":
+                    roomService.joinRoom(socketMessage.getRoomId(), session);
+                    break;
 
-                sessionRooms.put(session, roomId);
+                case "CHAT":
+                    roomService.handleChat(socketMessage, session);
+                    break;
 
-                System.out.println(socketMessage.getSender() + " Joined Room " + roomId);
-            }
-
-            if(Objects.equals(type, "CHAT")){
-
-                String jsonMessage = objectMapper.writeValueAsString(socketMessage);
-                String roomId = sessionRooms.get(session);
-
-                List<WebSocketSession> roomSessions = rooms.get(roomId);
-
-                for(WebSocketSession s : roomSessions){
-                    s.sendMessage(new TextMessage(jsonMessage));
-                }
-            }
-            if(Objects.equals(type, "LEAVE")){
-                String roomId = sessionRooms.get(session);
-                if(roomId != null){
-                    rooms.get(roomId).remove(session);
-                    sessionRooms.remove(session);
-
-                    if(rooms.get(roomId).isEmpty()){
-                        rooms.remove(roomId);
-                    }
-                    System.out.println(socketMessage.getSender() + "left the room");
-                }
+                case "LEAVE":
+                    roomService.leaveRoom(socketMessage.getRoomId(), session);
+                    break;
             }
         } catch (Exception e){
             System.out.println("PARSING ERROR!");
