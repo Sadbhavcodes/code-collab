@@ -13,14 +13,14 @@ import java.util.*;
 
 @Component
 public class ChatWebSocketHandler extends TextWebSocketHandler {
+
     private RoomService roomService;
+
     public ChatWebSocketHandler(RoomService roomService){
         this.roomService = roomService;
         System.out.println("HANDLER CREATED");
     }
 
-    private final Map<String, List<WebSocketSession>> rooms = new HashMap<>();
-    private final Map<WebSocketSession, String> sessionRooms = new HashMap<>();
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Override
@@ -44,7 +44,7 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
                     break;
 
                 case "CHAT":
-                    roomService.handleChat(socketMessage, session);
+                    roomService.handleChat(socketMessage);
                     break;
 
                 case "LEAVE":
@@ -60,14 +60,7 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
     @Override
     public void afterConnectionClosed(WebSocketSession session, CloseStatus status)
             throws Exception{
-        String roomId = sessionRooms.get(session);
-        if(roomId != null){
-            rooms.get(roomId).remove(session);
-            sessionRooms.remove(session);
-            if(rooms.get(roomId).isEmpty()){
-                rooms.remove(roomId);
-            }
-        }
+        roomService.handleDisconnect(session);
         System.out.println("User disconnected");
 
     }
