@@ -4,12 +4,14 @@ import backend.dto.SocketMessage;
 import backend.model.ChatMessage;
 import backend.model.Room;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.stereotype.Service;
 import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
 
 import java.io.IOException;
 import java.util.*;
 
+@Service
 public class RoomService {
     private ObjectMapper objectMapper = new ObjectMapper();
     private Map<String, Room> rooms = new HashMap<>();
@@ -26,13 +28,13 @@ public class RoomService {
         }
     }
 
-    public void handleChat(SocketMessage socketMessage) throws IOException {
+    public void handleChat(SocketMessage socketMessage, WebSocketSession session) throws IOException {
         ChatMessage message = new ChatMessage();
         message.setSender(socketMessage.getSender());
         message.setContent(socketMessage.getContent());
 
-        Room room = rooms.get(socketMessage.getRoomId());
-
+        String roomId = sessionRooms.get(session);
+        Room room = rooms.get(roomId);
         room.getMessages().add(message);
         String jsonMessage = objectMapper.writeValueAsString(message);
 

@@ -14,7 +14,7 @@ import java.util.*;
 @Component
 public class ChatWebSocketHandler extends TextWebSocketHandler {
 
-    private RoomService roomService;
+    private RoomService roomService = new RoomService();
 
     public ChatWebSocketHandler(RoomService roomService){
         this.roomService = roomService;
@@ -44,7 +44,7 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
                     break;
 
                 case "CHAT":
-                    roomService.handleChat(socketMessage);
+                    roomService.handleChat(socketMessage,session);
                     break;
 
                 case "LEAVE":

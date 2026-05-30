@@ -1,23 +1,16 @@
 import { useEffect, useState } from "react";
 
 export default function RoomModal({
-    isOpen,
-    onClose
+    onClose,
+    onJoin
 }) {
-    const [joined, setJoined] = useState(false);
     const [roomId, setRoomId] = useState("");
 
-    const [message, setMessage] = useState("");
-    const [messages, setMessages] = useState([]);
-
-    const [socket, setSocket] = useState(null);
-
     const joinRoom = () => {
+        console.log("Join Button clicked");
         if (!roomId.trim()) return;
 
         const sock = new WebSocket("ws://localhost:8080/chat");
-        setSocket(sock);
-
         sock.onopen = () => {
             console.log("Connected to websocket.");
 
@@ -27,85 +20,41 @@ export default function RoomModal({
                     roomId: roomId
                 })
             )
-            setJoined(true);
+            onJoin({
+                roomId,
+                socket: sock
+            })
         }
-        sock.onmessage = (event) => {
-            console.log("Handling messages...");
-            const data = JSON.parse(event.data);
-            setMessages((prev) => [...prev, data.content]);
-        }
-
         sock.onclose = () => {
             console.log("Disconnected");
         }
     };
-
-    const sendMessage = () => {
-        if (!message.trim()) return;
-
-        socket.send(
-            JSON.stringify({
-                type: "CHAT",
-                content: message
-            })
-        )
-        setMessage("");
-    };
     return (
         <div>
             <div>
+                <h2>
+                    Join Room
+                </h2>
+                <button
+                    onClick={onClose}
+                >
+                    ✕
+                </button>
 
-                <div>
-                    <h2>
-                        {joined ? `Room: ${roomId}` : "Join room"}
-                    </h2>
-                    <button
-                        onClick={onClose}
-                    >
-                        ✕
-                    </button>
+            </div>
+            <div>
+                <input
+                    type="text"
+                    placeholder="Enter room Id"
+                    value={roomId}
+                    onChange={(e) => setRoomId(e.target.value)}
+                />
 
-                </div>
-                {!joined && (
-                    <div>
-                        <input
-                            type="text"
-                            placeholder="Enter room Id"
-                            value={roomId}
-                            onChange={(e) => setRoomId(e.target.value)}
-                        />
-
-                        <button
-                            onClick={joinRoom}
-                        >
-                            Join
-                        </button>
-                    </div>
-                )}
-
-                {joined && (
-                    <div>
-                        <div>
-                            {messages.map((msg, idx) => (
-                                <p key={idx}> {msg} </p>
-                            ))}
-                        </div>
-
-                        <div>
-                            <input
-                             type="text"
-                             placeholder="Type message.."
-                             value={message}
-                             onChange={(e) => setMessage(e.target.value)} 
-                            />
-                            <button
-                                onClick={sendMessage}
-                            >
-                                Send
-                            </button>
-                        </div>
-                    </div>
-                )}
+                <button
+                    onClick={joinRoom}
+                >
+                    Join
+                </button>
             </div>
         </div>
     );

@@ -1,25 +1,41 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import RoomModal from "./components/RoomModal";
+import RoomPage from "./components/RoomPage";
 
 function App() {
   const [open, setOpen] = useState(false);
+  const [roomData, setRoomData] = useState(null);
 
   return (
     <div>
-      <h1>Realtime Chat </h1>
 
-      <button
-        onClick={() => setOpen(true)}
-      >
-        Join Room
-      </button>
+      {!roomData ? (
+        <>
+          <h1>Realtime Chat </h1>
 
-      {open && (
-        <RoomModal
-          onClose={() => setOpen(false)}
+          <button
+            onClick={() => setOpen(true)}
+          >
+            Join Room
+          </button>
+
+          {open && (
+            <RoomModal
+              onClose={() => setOpen(false)}
+              onJoin={(data) => {
+                setRoomData(data);
+                setOpen(false);
+              }}
+            />
+          )}
+        </>
+      ) : (
+        <RoomPage
+          roomId={roomData.roomId}
+          socket={roomData.socket}
+          onLeave={() => setRoomData(null)}
         />
       )}
-
     </div>
   );
 }
