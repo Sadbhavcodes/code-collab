@@ -39,22 +39,26 @@ public class RoomService {
         String jsonMessage = objectMapper.writeValueAsString(message);
 
         for(WebSocketSession s: room.getSessions()){
-            s.sendMessage(new TextMessage(jsonMessage));
+            if(s.isOpen()){
+                s.sendMessage(new TextMessage(jsonMessage));
+            }
         }
     }
 
     public void leaveRoom(String roomId, WebSocketSession session){
-        try{
-            if(rooms.containsKey(roomId)){
-                Room room = rooms.get(roomId);
-                if(room.getSessions().isEmpty()){
-                    room.getSessions().remove(session);
+        System.out.println("Removing session " + session.getId());
+        if(!rooms.containsKey(roomId)){
+            return;
+        }
 
-                    sessionRooms.remove(session);
-                }
-            }
-        } catch (Exception e){
-            System.out.println("Such room does not exist");
+        Room room = rooms.get(roomId);
+
+        room.getSessions().remove(session);
+
+        sessionRooms.remove(session);
+
+        if(room.getSessions().isEmpty()){
+            rooms.remove(roomId);
         }
     }
 
