@@ -1,6 +1,7 @@
 package backend.handler;
 
 import backend.dto.SocketMessage;
+import backend.service.CodeEditorService;
 import backend.service.RoomService;
 import org.springframework.stereotype.Component;
 import org.springframework.web.socket.CloseStatus;
@@ -14,14 +15,15 @@ import java.util.*;
 @Component
 public class ChatWebSocketHandler extends TextWebSocketHandler {
 
-    private RoomService roomService = new RoomService();
+    private RoomService roomService;
+    private CodeEditorService codeEditorService;
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
-    public ChatWebSocketHandler(RoomService roomService){
+    public ChatWebSocketHandler(RoomService roomService, CodeEditorService codeEditorService){
         this.roomService = roomService;
+        this.codeEditorService = codeEditorService;
         System.out.println("HANDLER CREATED");
     }
-
-    private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Override
     public void afterConnectionEstablished(WebSocketSession session)
@@ -49,6 +51,10 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
 
                 case "LEAVE":
                     roomService.leaveRoom(socketMessage.getRoomId(), session);
+                    break;
+
+                case "CODE-CHANGE":
+                    codeEditorService.handleCodeChange(socketMessage,session);
                     break;
             }
         } catch (Exception e){

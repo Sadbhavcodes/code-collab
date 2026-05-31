@@ -9,6 +9,7 @@ import java.util.List;
 @lombok.Setter
 public class Room {
     private String roomId;
+    private CodeEditorState codeEditorState;
     private List<WebSocketSession> sessions = new ArrayList<>();
     private List<ChatMessage> messages = new ArrayList<>();
 

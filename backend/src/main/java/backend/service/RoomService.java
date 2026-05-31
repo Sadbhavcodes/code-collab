@@ -70,4 +70,7 @@ public class RoomService {
         }
         leaveRoom(roomId, session);
     }
+    public Room getRoom(String roomId){
+        return rooms.get(roomId);
+    }
 }

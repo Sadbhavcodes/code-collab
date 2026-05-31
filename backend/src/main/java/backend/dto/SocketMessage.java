@@ -1,5 +1,6 @@
 package backend.dto;
 
+import backend.model.CodeEditorState;
 import lombok.Getter;
 import lombok.Setter;
 
@@ -10,7 +11,7 @@ public class SocketMessage {
         private String sender;
         private String content;
         private String roomId;
-
+        private CodeEditorState codeEditorState;
         public SocketMessage(){
         }
 }
