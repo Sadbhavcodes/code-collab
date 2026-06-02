@@ -13,7 +13,7 @@ function App() {
       <header className="topbar">
         <div className="topbar-logo">
           <div className="topbar-logo-icon">D</div>
-          DevStream Pro
+          Code Collab
         </div>
 
         {roomData && (
@@ -72,7 +72,6 @@ function App() {
           ) : (
             <RoomPage
               roomId={roomData.roomId}
-              socket={roomData.socket}
               onLeave={() => setRoomData(null)}
             />
           )}

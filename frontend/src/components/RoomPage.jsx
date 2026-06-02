@@ -1,10 +1,22 @@
+import { useEffect } from "react";
 import CodeEditor from "./CodeEditor";
 import ChatPanel from "./ChatPanel";
+import { sendMessage, getSocket } from "../services/websocketService";
 
-export default function RoomPage({ roomId, socket, onLeave }) {
+export default function RoomPage({ roomId, onLeave }) {
+  useEffect(() => {
+    // Component mounted for the room
+    return () => {
+      // Cleanup on unmount
+    };
+  }, []);
+
   const handleLeave = () => {
-    socket.send(JSON.stringify({ type: "LEAVE" }));
-    socket.close();
+    sendMessage({ type: "LEAVE", roomId });
+    const socket = getSocket();
+    if (socket) {
+      socket.close();
+    }
     onLeave();
   };
 
@@ -31,12 +43,12 @@ export default function RoomPage({ roomId, socket, onLeave }) {
             </div>
           </div>
           <div className="editor-body">
-            <CodeEditor />
+            <CodeEditor roomId={roomId} />
           </div>
         </div>
 
         {/* Chat pane */}
-        <ChatPanel socket={socket} />
+        <ChatPanel />
 
       </div>
 
