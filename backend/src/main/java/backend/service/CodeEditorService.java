@@ -26,6 +26,29 @@ public class CodeEditorService {
 
         broadcastToRoom(socketMessage,room,session);
     }
+
+    public void handleCursorMove(SocketMessage socketMessage, WebSocketSession session) throws IOException {
+        System.out.println("Handling cursor move...");
+        Room room = roomService.getRoom(socketMessage.getRoomId());
+        if (room == null) return;
+
+        SocketMessage response = new SocketMessage();
+        response.setType("CURSOR_MOVE");
+        response.setRoomId(socketMessage.getRoomId());
+        response.setSender(socketMessage.getSender());
+        response.setUsername(socketMessage.getUsername());
+        response.setLineNumber(socketMessage.getLineNumber());
+        response.setColumn(socketMessage.getColumn());
+
+        String jsonMessage = objectMapper.writeValueAsString(response);
+        for (WebSocketSession s : room.getSessions()) {
+            if (s == session || !s.isOpen()) {
+                continue;
+            }
+            s.sendMessage(new TextMessage(jsonMessage));
+        }
+    }
+
     public void broadcastToRoom(SocketMessage socketMessage, Room room, WebSocketSession sender)
             throws IOException {
         System.out.println("Broadcasting to room " + socketMessage.getRoomId() + ",to " + (room.getSessions().size() - 1 + " users"));

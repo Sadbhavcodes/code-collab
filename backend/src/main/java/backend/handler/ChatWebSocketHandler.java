@@ -54,6 +54,9 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
                 case "CODE-CHANGE":
                     codeEditorService.handleCodeChange(socketMessage,session);
                     break;
+                case "CURSOR_MOVE":
+                    codeEditorService.handleCursorMove(socketMessage,session);
+                    break;
             }
         } catch (Exception e){
             System.out.println("PARSING ERROR!");

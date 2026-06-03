@@ -43,7 +43,7 @@ export default function RoomPage({ roomId, username, onLeave }) {
             </div>
           </div>
           <div className="editor-body">
-            <CodeEditor roomId={roomId} />
+            <CodeEditor roomId={roomId} username={username} />
           </div>
         </div>
 

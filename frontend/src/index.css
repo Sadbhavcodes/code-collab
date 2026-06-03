@@ -572,6 +572,14 @@ p { margin: 0; }
 }
 .btn-send:hover { background: var(--accent-hover); }
 
+.monaco-editor .remote-cursor-decoration {
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  margin-left: -1px;
+  vertical-align: text-bottom;
+}
+
 /* ── Status bar ────────────────────────────────────────────── */
 .statusbar {
   display: flex;
