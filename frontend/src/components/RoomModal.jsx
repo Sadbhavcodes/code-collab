@@ -6,19 +6,21 @@ import {
 
 export default function RoomModal({ onClose, onJoin }) {
   const [roomId, setRoomId] = useState("");
+  const [username, setUsername] = useState("");
 
   const joinRoom = () => {
 
-    if (!roomId.trim()) return;
+    if (!roomId.trim() || !username.trim()) return;
 
     connectSocket(() => {
 
         sendMessage({
             type: "JOIN",
-            roomId
+            roomId,
+            sender: username
         });
 
-        onJoin({ roomId });
+        onJoin({ roomId, username });
 
     });
 };
@@ -45,7 +47,34 @@ export default function RoomModal({ onClose, onJoin }) {
           </button>
         </div>
 
-        {/* Input */}
+        {/* Username Input */}
+        <div className="modal-field">
+          <label className="modal-label">
+            Enter Username
+          </label>
+
+          <div className="modal-input-wrap">
+            <input
+              className="modal-input"
+              type="text"
+              placeholder="e.g. Alice"
+              value={username}
+              onChange={(e) =>
+                setUsername(e.target.value)
+              }
+              onKeyDown={(e) =>
+                e.key === "Enter" &&
+                joinRoom()
+              }
+            />
+
+            <span className="modal-input-icon">
+              👤
+            </span>
+          </div>
+        </div>
+
+        {/* Room ID Input */}
         <div className="modal-field">
           <label className="modal-label">
             Enter Room ID

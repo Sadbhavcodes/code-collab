@@ -13,9 +13,28 @@ export default function CodeEditor({ roomId, language = "javascript" }) {
   const [value, setValue] = useState("// Start coding...");
   const remoteApplying = useRef(false);
   const debounceRef = useRef(null);
+  const roomStateHandled = useRef(false);
 
   useEffect(() => {
     connectSocket();
+
+    function handleRoomState(data) {
+      // Receive initial room state (code + messages) on join
+      console.log("🔵 CodeEditor received ROOM_STATE:", data);
+      if (!roomStateHandled.current && data && data.codeEditorState) {
+        roomStateHandled.current = true;
+        const code = data.codeEditorState.code || "// Start coding...";
+        console.log("✅ Loading code from ROOM_STATE:", code);
+        remoteApplying.current = true;
+        const ed = editorRef.current;
+        if (ed) {
+          ed.setValue(code);
+        } else {
+          setValue(code);
+        }
+        setTimeout(() => (remoteApplying.current = false), 50);
+      }
+    }
 
     function handleCodeChangeMessage(data) {
       if (!data || !data.codeEditorState) return;
@@ -32,9 +51,11 @@ export default function CodeEditor({ roomId, language = "javascript" }) {
       setTimeout(() => (remoteApplying.current = false), 50);
     }
 
+    subscribe("ROOM_STATE", handleRoomState);
     subscribe("CODE-CHANGE", handleCodeChangeMessage);
 
     return () => {
+      unsubscribe("ROOM_STATE", handleRoomState);
       unsubscribe("CODE-CHANGE", handleCodeChangeMessage);
     };
   }, [roomId]);

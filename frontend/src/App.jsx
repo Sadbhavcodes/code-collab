@@ -72,6 +72,7 @@ function App() {
           ) : (
             <RoomPage
               roomId={roomData.roomId}
+              username={roomData.username}
               onLeave={() => setRoomData(null)}
             />
           )}

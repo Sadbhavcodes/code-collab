@@ -1,11 +1,17 @@
 let socket = null;
 const listeners = {};
+const messageBuffer = {}; // Buffer recent messages by type
 
 export function subscribe(type, callback) {
     if (!listeners[type]) {
         listeners[type] = [];
     }
     listeners[type].push(callback);
+    
+    // If there's a buffered message for this type, immediately call the callback
+    if (messageBuffer[type]) {
+        callback(messageBuffer[type]);
+    }
 }
 export function unsubscribe(type, callback) {
     if (!listeners[type]) return;
@@ -56,6 +62,11 @@ export function handleMessage(event) {
     const type = data.type;
 
     if (type) {
+        // Buffer certain message types for late subscribers
+        if (type === "ROOM_STATE" || type === "ROOM_USERS") {
+            messageBuffer[type] = data;
+        }
+        
         const callbacks = listeners[type];
         if (!callbacks) return;
         callbacks.forEach((callback) => callback(data));

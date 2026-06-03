@@ -10,8 +10,6 @@ import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
-import java.util.*;
-
 @Component
 public class ChatWebSocketHandler extends TextWebSocketHandler {
 
@@ -42,7 +40,7 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
             String type = socketMessage.getType();
             switch (type){
                 case "JOIN":
-                    roomService.joinRoom(socketMessage.getRoomId(), session);
+                    roomService.joinRoom(socketMessage, session);
                     break;
 
                 case "CHAT":

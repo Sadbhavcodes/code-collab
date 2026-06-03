@@ -3,7 +3,7 @@ import CodeEditor from "./CodeEditor";
 import ChatPanel from "./ChatPanel";
 import { sendMessage, getSocket } from "../services/websocketService";
 
-export default function RoomPage({ roomId, onLeave }) {
+export default function RoomPage({ roomId, username, onLeave }) {
   useEffect(() => {
     // Component mounted for the room
     return () => {
@@ -48,7 +48,7 @@ export default function RoomPage({ roomId, onLeave }) {
         </div>
 
         {/* Chat pane */}
-        <ChatPanel />
+        <ChatPanel roomId={roomId} username={username} />
 
       </div>
 
