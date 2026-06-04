@@ -51,9 +51,10 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
                     roomService.leaveRoom(socketMessage.getRoomId(), session);
                     break;
 
-                case "CODE-CHANGE":
-                    codeEditorService.handleCodeChange(socketMessage,session);
+                case "YJS_UPDATE":
+                    codeEditorService.handleYjsUpdate(socketMessage,session);
                     break;
+
                 case "CURSOR_MOVE":
                     codeEditorService.handleCursorMove(socketMessage,session);
                     break;
@@ -69,6 +70,5 @@ public class ChatWebSocketHandler extends TextWebSocketHandler {
             throws Exception{
         roomService.handleDisconnect(session);
         System.out.println("User disconnected");
-
     }
 }

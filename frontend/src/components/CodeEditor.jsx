@@ -1,5 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+﻿import { useEffect, useRef } from "react";
 import Editor from "@monaco-editor/react";
+import * as Y from "yjs";
+import { MonacoBinding } from "y-monaco";
 import {
   connectSocket,
   subscribe,
@@ -32,51 +34,160 @@ function hashStringToIndex(value) {
   return Math.abs(hash) % CURSOR_COLORS.length;
 }
 
+function encodeUpdate(update) {
+  let binary = "";
+  const chunkSize = 0x8000;
+  for (let i = 0; i < update.length; i += chunkSize) {
+    binary += String.fromCharCode(...update.subarray(i, i + chunkSize));
+  }
+  return btoa(binary);
+}
+
+function decodeUpdate(base64) {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
+}
+
+const DEFAULT_CODE = "// Start coding...";
+
 export default function CodeEditor({ roomId, language = "javascript", username = "Anonymous" }) {
   const editorRef = useRef(null);
   const monacoRef = useRef(null);
-  const [value, setValue] = useState("// Start coding...");
-  const remoteApplying = useRef(false);
-  const debounceRef = useRef(null);
-  const roomStateHandled = useRef(false);
+  const ydocRef = useRef(null);
+  const ytextRef = useRef(null);
+  const bindingRef = useRef(null);
   const remoteCursorDecorations = useRef({});
   const userCursorClasses = useRef(new Map());
   const cursorStyleSheet = useRef(null);
+  const remoteUpdateOrigin = useRef({});
+
+  useEffect(() => {
+    const ydoc = new Y.Doc();
+    const ytext = ydoc.getText("editor");
+    ydocRef.current = ydoc;
+    ytextRef.current = ytext;
+
+    const handleDocUpdate = (update, origin) => {
+      console.log("CodeEditor.handleDocUpdate", { origin, updateSize: update.length });
+      if (origin === remoteUpdateOrigin.current) {
+        console.log("CodeEditor.handleDocUpdate ignored remote-origin update");
+        return;
+      }
+      const socket = getSocket();
+      if (!socket || socket.readyState !== WebSocket.OPEN) {
+        console.log("CodeEditor.handleDocUpdate socket not open", socket?.readyState);
+        return;
+      }
+      const encoded = encodeUpdate(update);
+      const code = ytext.toString();
+      console.log("CodeEditor sending YJS_UPDATE", { codeLength: code.length });
+      sendMessage({
+        type: "YJS_UPDATE",
+        roomId,
+        sender: username,
+        update: encoded,
+        code,
+      });
+    };
+
+    ydoc.on("update", handleDocUpdate);
+
+    return () => {
+      ydoc.off("update", handleDocUpdate);
+      if (bindingRef.current) {
+        bindingRef.current.destroy();
+      }
+      ydoc.destroy();
+      ydocRef.current = null;
+      ytextRef.current = null;
+      bindingRef.current = null;
+    };
+  }, [roomId, username]);
+
+  const applyUpdateState = (state) => {
+    if (!state) return;
+    const ydoc = ydocRef.current;
+    const ytext = ytextRef.current;
+    if (!ydoc || !ytext) return;
+
+    console.log("CodeEditor.applyUpdateState", {
+      stateKeys: Object.keys(state),
+      ytextLength: ytext.length,
+      hasUpdate: !!state.update,
+      hasCode: typeof state.code === "string",
+      hasCodeEditorState: !!state.codeEditorState,
+    });
+
+    if (state.update) {
+      try {
+        const update = decodeUpdate(state.update);
+        Y.applyUpdate(ydoc, update, remoteUpdateOrigin.current);
+        console.log("CodeEditor.applyUpdateState applied remote update", {
+          ytextLength: ytext.length,
+        });
+
+        if (typeof state.code === "string" && ytext.toString() !== state.code) {
+          console.log("CodeEditor.applyUpdateState fallback to full code because update did not match", {
+            actualLength: ytext.length,
+            expectedLength: state.code.length,
+          });
+          ydoc.transact(() => {
+            ytext.delete(0, ytext.length);
+            ytext.insert(0, state.code || DEFAULT_CODE);
+          }, remoteUpdateOrigin.current);
+        }
+        return;
+      } catch (error) {
+        console.warn("Failed to apply Yjs update, falling back to code", error);
+      }
+    }
+
+    if (typeof state.code === "string") {
+      console.log("CodeEditor.applyUpdateState applying code state", { codeLength: state.code.length });
+      ydoc.transact(() => {
+        ytext.delete(0, ytext.length);
+        ytext.insert(0, state.code || DEFAULT_CODE);
+      }, remoteUpdateOrigin.current);
+      return;
+    }
+
+    if (state.codeEditorState && typeof state.codeEditorState.code === "string") {
+      console.log("CodeEditor.applyUpdateState applying codeEditorState.code", {
+        codeLength: state.codeEditorState.code.length,
+      });
+      ydoc.transact(() => {
+        ytext.delete(0, ytext.length);
+        ytext.insert(0, state.codeEditorState.code || DEFAULT_CODE);
+      }, remoteUpdateOrigin.current);
+    }
+  };
 
   useEffect(() => {
     connectSocket();
 
     function handleRoomState(data) {
-      // Receive initial room state (code + messages) on join
-      console.log("🔵 CodeEditor received ROOM_STATE:", data);
-      if (!roomStateHandled.current && data && data.codeEditorState) {
-        roomStateHandled.current = true;
-        const code = data.codeEditorState.code || "// Start coding...";
-        console.log("✅ Loading code from ROOM_STATE:", code);
-        remoteApplying.current = true;
-        const ed = editorRef.current;
-        if (ed) {
-          ed.setValue(code);
-        } else {
-          setValue(code);
-        }
-        setTimeout(() => (remoteApplying.current = false), 50);
-      }
+      console.log("CodeEditor received ROOM_STATE", {
+        roomId: data?.roomId,
+        hasCodeEditorState: !!data?.codeEditorState,
+        codeLength: data?.codeEditorState?.code?.length,
+      });
+      if (!data || !data.codeEditorState) return;
+      applyUpdateState(data.codeEditorState);
     }
 
-    function handleCodeChangeMessage(data) {
-      if (!data || !data.codeEditorState) return;
-      const code = data.codeEditorState.code || "";
-      // apply remote changes without echoing
-      remoteApplying.current = true;
-      const ed = editorRef.current;
-      if (ed) {
-        ed.setValue(code);
-      } else {
-        setValue(code);
-      }
-      // small timeout to allow onChange to ignore
-      setTimeout(() => (remoteApplying.current = false), 50);
+    function handleYjsUpdateMessage(data) {
+      console.log("CodeEditor received YJS_UPDATE", {
+        roomId: data?.roomId,
+        sender: data?.sender,
+        hasUpdate: !!data?.update,
+        codeLength: data?.code?.length,
+      });
+      if (!data || (!data.update && typeof data.code !== "string")) return;
+      applyUpdateState(data);
     }
 
     function handleCursorMoveMessage(data) {
@@ -86,12 +197,12 @@ export default function CodeEditor({ roomId, language = "javascript", username =
     }
 
     subscribe("ROOM_STATE", handleRoomState);
-    subscribe("CODE-CHANGE", handleCodeChangeMessage);
+    subscribe("YJS_UPDATE", handleYjsUpdateMessage);
     subscribe("CURSOR_MOVE", handleCursorMoveMessage);
 
     return () => {
       unsubscribe("ROOM_STATE", handleRoomState);
-      unsubscribe("CODE-CHANGE", handleCodeChangeMessage);
+      unsubscribe("YJS_UPDATE", handleYjsUpdateMessage);
       unsubscribe("CURSOR_MOVE", handleCursorMoveMessage);
     };
   }, [roomId, username]);
@@ -102,7 +213,7 @@ export default function CodeEditor({ roomId, language = "javascript", username =
     }
     const styleEl = document.createElement("style");
     styleEl.id = "remote-cursor-styles";
-    styleEl.textContent = 
+    styleEl.textContent =
       ".monaco-editor .remote-cursor-decoration { display: inline-block; width: 2px; height: 1em; margin-left: -1px; vertical-align: text-bottom; }";
     document.head.appendChild(styleEl);
     cursorStyleSheet.current = styleEl;
@@ -149,18 +260,19 @@ export default function CodeEditor({ roomId, language = "javascript", username =
   }
 
   function handleEditorDidMount(editor, monaco) {
+    console.log("CodeEditor.handleEditorDidMount", {
+      modelExists: !!editor.getModel(),
+      ytextLength: ytextRef.current?.length,
+    });
     editorRef.current = editor;
     monacoRef.current = monaco;
 
-    editor.onDidChangeModelContent((event) => {
-      console.log("Model content changed:", event);
-    });
+    const ytext = ytextRef.current;
+    if (ytext && editor.getModel()) {
+      bindingRef.current = new MonacoBinding(ytext, editor.getModel(), new Set([editor]));
+    }
 
     editor.onDidChangeCursorPosition((event) => {
-      if (remoteApplying.current) return;
-
-      console.log(event.position.lineNumber, event.position.column);
-
       const socket = getSocket();
       if (!socket || socket.readyState !== WebSocket.OPEN) return;
 
@@ -172,20 +284,6 @@ export default function CodeEditor({ roomId, language = "javascript", username =
         column: event.position.column,
       });
     });
-  }
-
-  function onChange(newValue) {
-    if (remoteApplying.current) return;
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => {
-      const socket = getSocket();
-      if (!socket || socket.readyState !== WebSocket.OPEN) return;
-      sendMessage({
-        type: "CODE-CHANGE",
-        roomId,
-        codeEditorState: { code: newValue },
-      });
-    }, 250);
   }
 
   const editorOptions = {
@@ -204,9 +302,8 @@ export default function CodeEditor({ roomId, language = "javascript", username =
       height="80vh"
       language={language}
       theme="vs-dark"
-      value={value}
+      defaultValue=""
       onMount={handleEditorDidMount}
-      onChange={onChange}
       options={editorOptions}
     />
   );
