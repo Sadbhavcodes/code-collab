@@ -24,6 +24,7 @@ public class SocketMessage {
     private List<ChatMessage> messages;
     private String update;
     private String code;
+    private List<String> yjsUpdates;
 
     public SocketMessage() {
     }

@@ -1,4 +1,4 @@
-﻿import { useEffect, useRef } from "react";
+import { useEffect, useRef } from "react";
 import Editor from "@monaco-editor/react";
 import * as Y from "yjs";
 import { MonacoBinding } from "y-monaco";
@@ -11,18 +11,9 @@ import {
 } from "../services/websocketService";
 
 const CURSOR_COLORS = [
-  "#f97316",
-  "#3b82f6",
-  "#22c55e",
-  "#e11d48",
-  "#a855f7",
-  "#0ea5e9",
-  "#f43f5e",
-  "#14b8a6",
-  "#fb923c",
-  "#8b5cf6",
-  "#06b6d4",
-  "#f87171",
+  "#f97316", "#3b82f6", "#22c55e", "#e11d48", "#a855f7",
+  "#0ea5e9", "#f43f5e", "#14b8a6", "#fb923c", "#8b5cf6",
+  "#06b6d4", "#f87171",
 ];
 
 function hashStringToIndex(value) {
@@ -52,9 +43,7 @@ function decodeUpdate(base64) {
   return bytes;
 }
 
-const DEFAULT_CODE = "// Start coding...";
-
-export default function CodeEditor({ roomId, language = "javascript", username = "Anonymous" }) {
+export default function CodeEditor({ roomId, username = "Anonymous", onReady }) {
   const editorRef = useRef(null);
   const monacoRef = useRef(null);
   const ydocRef = useRef(null);
@@ -63,8 +52,17 @@ export default function CodeEditor({ roomId, language = "javascript", username =
   const remoteCursorDecorations = useRef({});
   const userCursorClasses = useRef(new Map());
   const cursorStyleSheet = useRef(null);
-  const remoteUpdateOrigin = useRef({});
 
+  // Stable object used as Yjs update origin to mark remote-applied updates
+  // so we don't re-broadcast them back to the server.
+  const remoteOrigin = useRef({});
+
+  // Queue for ROOM_STATE/YJS_UPDATE messages that arrive before the
+  // MonacoBinding is ready. Drained once the editor mounts.
+  const pendingUpdates = useRef([]);
+  const bindingReady = useRef(false);
+
+  // ── Effect 1: create Y.Doc and outbound update sender ──────────────────────
   useEffect(() => {
     const ydoc = new Y.Doc();
     const ytext = ydoc.getText("editor");
@@ -72,25 +70,18 @@ export default function CodeEditor({ roomId, language = "javascript", username =
     ytextRef.current = ytext;
 
     const handleDocUpdate = (update, origin) => {
-      console.log("CodeEditor.handleDocUpdate", { origin, updateSize: update.length });
-      if (origin === remoteUpdateOrigin.current) {
-        console.log("CodeEditor.handleDocUpdate ignored remote-origin update");
-        return;
-      }
+      // Don't echo back updates we applied from a remote source
+      if (origin === remoteOrigin.current) return;
+
       const socket = getSocket();
-      if (!socket || socket.readyState !== WebSocket.OPEN) {
-        console.log("CodeEditor.handleDocUpdate socket not open", socket?.readyState);
-        return;
-      }
-      const encoded = encodeUpdate(update);
-      const code = ytext.toString();
-      console.log("CodeEditor sending YJS_UPDATE", { codeLength: code.length });
+      if (!socket || socket.readyState !== WebSocket.OPEN) return;
+
       sendMessage({
         type: "YJS_UPDATE",
         roomId,
         sender: username,
-        update: encoded,
-        code,
+        update: encodeUpdate(update),
+        code: ytext.toString(),
       });
     };
 
@@ -100,98 +91,72 @@ export default function CodeEditor({ roomId, language = "javascript", username =
       ydoc.off("update", handleDocUpdate);
       if (bindingRef.current) {
         bindingRef.current.destroy();
+        bindingRef.current = null;
       }
       ydoc.destroy();
       ydocRef.current = null;
       ytextRef.current = null;
-      bindingRef.current = null;
+      bindingReady.current = false;
+      pendingUpdates.current = [];
     };
   }, [roomId, username]);
 
-  const applyUpdateState = (state) => {
-    if (!state) return;
-    const ydoc = ydocRef.current;
-    const ytext = ytextRef.current;
-    if (!ydoc || !ytext) return;
+  // ── Helpers ─────────────────────────────────────────────────────────────────
 
-    console.log("CodeEditor.applyUpdateState", {
-      stateKeys: Object.keys(state),
-      ytextLength: ytext.length,
-      hasUpdate: !!state.update,
-      hasCode: typeof state.code === "string",
-      hasCodeEditorState: !!state.codeEditorState,
+  // Apply a single base64-encoded Yjs update to the local doc.
+  function applyYjsUpdate(base64) {
+    const ydoc = ydocRef.current;
+    if (!ydoc || !base64) return;
+    try {
+      Y.applyUpdate(ydoc, decodeUpdate(base64), remoteOrigin.current);
+    } catch (err) {
+      console.warn("CodeEditor: Y.applyUpdate failed", err);
+    }
+  }
+
+  // Drain any updates that arrived before binding was ready.
+  function drainPending() {
+    const queue = pendingUpdates.current.splice(0);
+    queue.forEach((base64) => applyYjsUpdate(base64));
+  }
+
+  // ── Effect 2: connect + subscribe to WebSocket messages ────────────────────
+  useEffect(() => {
+    // Connect then send JOIN so the server sends back ROOM_STATE
+    connectSocket(() => {
+      sendMessage({
+        type: "JOIN",
+        roomId,
+        sender: username,
+      });
     });
 
-    if (state.update) {
-      try {
-        const update = decodeUpdate(state.update);
-        Y.applyUpdate(ydoc, update, remoteUpdateOrigin.current);
-        console.log("CodeEditor.applyUpdateState applied remote update", {
-          ytextLength: ytext.length,
-        });
+    function handleRoomState(data) {
+      if (!data) return;
+      // yjsUpdates is the ordered list of all Yjs updates stored by the backend.
+      // Apply each one individually — Yjs CRDT deduplicates automatically.
+      const updates = data.yjsUpdates;
+      if (!updates || updates.length === 0) return;
 
-        if (typeof state.code === "string" && ytext.toString() !== state.code) {
-          console.log("CodeEditor.applyUpdateState fallback to full code because update did not match", {
-            actualLength: ytext.length,
-            expectedLength: state.code.length,
-          });
-          ydoc.transact(() => {
-            ytext.delete(0, ytext.length);
-            ytext.insert(0, state.code || DEFAULT_CODE);
-          }, remoteUpdateOrigin.current);
-        }
-        return;
-      } catch (error) {
-        console.warn("Failed to apply Yjs update, falling back to code", error);
+      if (!bindingReady.current) {
+        // Editor not mounted yet — queue all of them
+        updates.forEach((u) => pendingUpdates.current.push(u));
+      } else {
+        updates.forEach((u) => applyYjsUpdate(u));
       }
     }
 
-    if (typeof state.code === "string") {
-      console.log("CodeEditor.applyUpdateState applying code state", { codeLength: state.code.length });
-      ydoc.transact(() => {
-        ytext.delete(0, ytext.length);
-        ytext.insert(0, state.code || DEFAULT_CODE);
-      }, remoteUpdateOrigin.current);
-      return;
-    }
-
-    if (state.codeEditorState && typeof state.codeEditorState.code === "string") {
-      console.log("CodeEditor.applyUpdateState applying codeEditorState.code", {
-        codeLength: state.codeEditorState.code.length,
-      });
-      ydoc.transact(() => {
-        ytext.delete(0, ytext.length);
-        ytext.insert(0, state.codeEditorState.code || DEFAULT_CODE);
-      }, remoteUpdateOrigin.current);
-    }
-  };
-
-  useEffect(() => {
-    connectSocket();
-
-    function handleRoomState(data) {
-      console.log("CodeEditor received ROOM_STATE", {
-        roomId: data?.roomId,
-        hasCodeEditorState: !!data?.codeEditorState,
-        codeLength: data?.codeEditorState?.code?.length,
-      });
-      if (!data || !data.codeEditorState) return;
-      applyUpdateState(data.codeEditorState);
-    }
-
     function handleYjsUpdateMessage(data) {
-      console.log("CodeEditor received YJS_UPDATE", {
-        roomId: data?.roomId,
-        sender: data?.sender,
-        hasUpdate: !!data?.update,
-        codeLength: data?.code?.length,
-      });
-      if (!data || (!data.update && typeof data.code !== "string")) return;
-      applyUpdateState(data);
+      if (!data?.update) return;
+      if (!bindingReady.current) {
+        pendingUpdates.current.push(data.update);
+      } else {
+        applyYjsUpdate(data.update);
+      }
     }
 
     function handleCursorMoveMessage(data) {
-      if (!data || !data.username || data.username === username) return;
+      if (!data?.username || data.username === username) return;
       if (data.lineNumber == null || data.column == null) return;
       updateRemoteCursor(data);
     }
@@ -207,10 +172,10 @@ export default function CodeEditor({ roomId, language = "javascript", username =
     };
   }, [roomId, username]);
 
+  // ── Cursor rendering helpers ─────────────────────────────────────────────────
+
   function ensureCursorStyleSheet() {
-    if (cursorStyleSheet.current) {
-      return cursorStyleSheet.current.sheet;
-    }
+    if (cursorStyleSheet.current) return cursorStyleSheet.current.sheet;
     const styleEl = document.createElement("style");
     styleEl.id = "remote-cursor-styles";
     styleEl.textContent =
@@ -225,7 +190,6 @@ export default function CodeEditor({ roomId, language = "javascript", username =
     if (userCursorClasses.current.has(trimmed)) {
       return userCursorClasses.current.get(trimmed);
     }
-
     const color = CURSOR_COLORS[hashStringToIndex(trimmed)];
     const sanitized = trimmed.replace(/[^a-zA-Z0-9_-]/g, "_");
     const className = `remote-cursor-${sanitized}`;
@@ -259,23 +223,35 @@ export default function CodeEditor({ roomId, language = "javascript", username =
     remoteCursorDecorations.current[remoteName] = newDecorations;
   }
 
+  // ── Editor mount ─────────────────────────────────────────────────────────────
+
   function handleEditorDidMount(editor, monaco) {
-    console.log("CodeEditor.handleEditorDidMount", {
-      modelExists: !!editor.getModel(),
-      ytextLength: ytextRef.current?.length,
-    });
     editorRef.current = editor;
     monacoRef.current = monaco;
 
     const ytext = ytextRef.current;
+    const ydoc = ydocRef.current;
+
     if (ytext && editor.getModel()) {
-      bindingRef.current = new MonacoBinding(ytext, editor.getModel(), new Set([editor]));
+      // MonacoBinding keeps the Monaco model in sync with the Yjs text.
+      // It reads the current ytext content on init so any updates already
+      // applied to ytext are reflected immediately.
+      bindingRef.current = new MonacoBinding(
+        ytext,
+        editor.getModel(),
+        new Set([editor]),
+        null // no awareness — we do our own cursor broadcasting
+      );
     }
 
+    // Mark binding as ready then drain any queued updates
+    bindingReady.current = true;
+    drainPending();
+
+    // Broadcast cursor position changes
     editor.onDidChangeCursorPosition((event) => {
       const socket = getSocket();
       if (!socket || socket.readyState !== WebSocket.OPEN) return;
-
       sendMessage({
         type: "CURSOR_MOVE",
         roomId,
@@ -284,6 +260,8 @@ export default function CodeEditor({ roomId, language = "javascript", username =
         column: event.position.column,
       });
     });
+
+    if (onReady) onReady();
   }
 
   const editorOptions = {
@@ -292,7 +270,7 @@ export default function CodeEditor({ roomId, language = "javascript", username =
     parameterHints: { enabled: true },
     autoClosingBrackets: "always",
     autoIndent: "full",
-    wordBasedSuggestions: true,
+    wordBasedSuggestions: "currentDocument",
     snippetSuggestions: "top",
     minimap: { enabled: false },
   };
@@ -300,7 +278,7 @@ export default function CodeEditor({ roomId, language = "javascript", username =
   return (
     <Editor
       height="80vh"
-      language={language}
+      language="javascript"
       theme="vs-dark"
       defaultValue=""
       onMount={handleEditorDidMount}

@@ -1,29 +1,14 @@
 import { useState } from "react";
-import {
-  connectSocket,
-  sendMessage
-} from "../services/websocketService";
 
 export default function RoomModal({ onClose, onJoin }) {
   const [roomId, setRoomId] = useState("");
   const [username, setUsername] = useState("");
 
   const joinRoom = () => {
-
     if (!roomId.trim() || !username.trim()) return;
-
-    connectSocket(() => {
-
-        sendMessage({
-            type: "JOIN",
-            roomId,
-            sender: username
-        });
-
-        onJoin({ roomId, username });
-
-    });
-};
+    // CodeEditor handles connectSocket + JOIN after its subscriptions are live
+    onJoin({ roomId, username });
+  };
 
   return (
     <div className="modal-overlay">

@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import CodeEditor from "./CodeEditor";
 import ChatPanel from "./ChatPanel";
-import { sendMessage, getSocket } from "../services/websocketService";
+import { sendMessage, disconnectSocket } from "../services/websocketService";
 
 export default function RoomPage({ roomId, username, onLeave }) {
   useEffect(() => {
@@ -13,10 +13,9 @@ export default function RoomPage({ roomId, username, onLeave }) {
 
   const handleLeave = () => {
     sendMessage({ type: "LEAVE", roomId });
-    const socket = getSocket();
-    if (socket) {
-      socket.close();
-    }
+    // disconnectSocket nulls the module-level socket before closing,
+    // preventing connectSocket() from reusing a CLOSING socket on rejoin
+    disconnectSocket();
     onLeave();
   };
 

@@ -116,16 +116,19 @@ public class RoomService {
 
     public void sendCurrentRoomState(WebSocketSession session, Room room) throws IOException {
         System.out.println("Sending ROOM_STATE to session " + session.getId());
-        System.out.println("   Code: " + (room.getCodeEditorState() != null ? room.getCodeEditorState().getCode() : "null"));
-        System.out.println("   Messages count: " + (room.getMessages() != null ? room.getMessages().size() : 0));
 
         SocketMessage socketMessage = new SocketMessage();
         socketMessage.setType("ROOM_STATE");
         socketMessage.setCodeEditorState(room.getCodeEditorState());
         socketMessage.setMessages(room.getMessages());
 
+        // Send the full ordered list of Yjs updates so the late-joining client
+        // can replay them all via Y.applyUpdate and arrive at the correct state.
+        if (room.getCodeEditorState() != null) {
+            socketMessage.setYjsUpdates(room.getCodeEditorState().getYjsUpdates());
+        }
+
         String json = objectMapper.writeValueAsString(socketMessage);
-        System.out.println("   JSON: " + json);
         session.sendMessage(new TextMessage(json));
     }
 
