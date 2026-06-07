@@ -31,3 +31,7 @@ build/
 
 ### VS Code ###
 .vscode/
+
+### Sensitive config files ###
+**/application.properties
+src/main/java/backend/application.properties
