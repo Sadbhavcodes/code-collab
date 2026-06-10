@@ -110,6 +110,10 @@ export default function CodeEditor({ roomId, username = "Anonymous", onReady, in
       ytextRef.current = null;
       bindingReady.current = false;
       pendingUpdates.current = [];
+      // Clear all label hide timers
+      Object.values(labelHideTimers.current).forEach(clearTimeout);
+      labelHideTimers.current = {};
+      labelVisible.current = {};
     };
   }, [roomId, username]);
 
@@ -205,32 +209,109 @@ export default function CodeEditor({ roomId, username = "Anonymous", onReady, in
 
   // ── Cursor rendering helpers ─────────────────────────────────────────────────
 
+  // Per-user hide timers: username → timeoutId
+  // When a cursor moves we show the label and start a 2.5s timer to hide it.
+  const labelHideTimers = useRef({});
+  // Track which users currently have their label visible
+  const labelVisible = useRef({});
+
   function ensureCursorStyleSheet() {
     if (cursorStyleSheet.current) return cursorStyleSheet.current.sheet;
     const styleEl = document.createElement("style");
     styleEl.id = "remote-cursor-styles";
-    styleEl.textContent =
-      ".monaco-editor .remote-cursor-decoration { display: inline-block; width: 2px; height: 1em; margin-left: -1px; vertical-align: text-bottom; }";
+    // Base rule for the cursor line element
+    styleEl.textContent = [
+      ".monaco-editor .rc-line {",
+      "  display: inline-block;",
+      "  width: 2px;",
+      "  height: 1.2em;",
+      "  margin-left: -1px;",
+      "  vertical-align: text-bottom;",
+      "  position: relative;",
+      "}",
+      // Base rule for the label element (hidden by default)
+      ".monaco-editor .rc-label {",
+      "  display: inline-block;",
+      "  position: absolute;",
+      "  top: -1.45em;",
+      "  left: 0;",
+      "  white-space: nowrap;",
+      "  font-size: 10px;",
+      "  font-family: 'Geist', system-ui, sans-serif;",
+      "  font-weight: 600;",
+      "  line-height: 1.6;",
+      "  padding: 0 5px;",
+      "  border-radius: 3px 3px 3px 0;",
+      "  pointer-events: none;",
+      "  opacity: 0;",
+      "  transition: opacity 0.15s ease;",
+      "  z-index: 10;",
+      "}",
+      ".monaco-editor .rc-label.rc-label--visible {",
+      "  opacity: 1;",
+      "}",
+    ].join("\n");
     document.head.appendChild(styleEl);
     cursorStyleSheet.current = styleEl;
     return styleEl.sheet;
   }
 
-  function getCursorClassNameForUser(user) {
+  function getCursorClassesForUser(user) {
     const trimmed = user.trim() || "anonymous";
     if (userCursorClasses.current.has(trimmed)) {
       return userCursorClasses.current.get(trimmed);
     }
+
     const color = CURSOR_COLORS[hashStringToIndex(trimmed)];
     const sanitized = trimmed.replace(/[^a-zA-Z0-9_-]/g, "_");
-    const className = `remote-cursor-${sanitized}`;
+    const lineClass  = `rc-line-${sanitized}`;
+    const labelClass = `rc-label-${sanitized}`;
+
     const sheet = ensureCursorStyleSheet();
+
+    // Cursor line — colored bar
     sheet.insertRule(
-      `.monaco-editor .remote-cursor-decoration.${className} { background-color: ${color}; border-left: 2px solid ${color}; }`,
+      `.monaco-editor .rc-line.${lineClass} { background-color: ${color}; border-left: 2px solid ${color}; }`,
       sheet.cssRules.length
     );
-    userCursorClasses.current.set(trimmed, className);
-    return className;
+
+    // Label pill — same color background, white text
+    // We use ::before on the label span to inject the username text via CSS content
+    // so we don't need to touch the DOM directly.
+    const escapedName = trimmed.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+    sheet.insertRule(
+      `.monaco-editor .rc-label.${labelClass}::before { content: "${escapedName}"; color: #fff; }`,
+      sheet.cssRules.length
+    );
+    sheet.insertRule(
+      `.monaco-editor .rc-label.${labelClass} { background-color: ${color}; }`,
+      sheet.cssRules.length
+    );
+
+    const classes = { lineClass, labelClass };
+    userCursorClasses.current.set(trimmed, classes);
+    return classes;
+  }
+
+  function showLabel(remoteName) {
+    // Clear any existing hide timer
+    if (labelHideTimers.current[remoteName]) {
+      clearTimeout(labelHideTimers.current[remoteName]);
+    }
+    labelVisible.current[remoteName] = true;
+
+    // Add visible class to all label elements for this user
+    document
+      .querySelectorAll(`.rc-label-${remoteName.replace(/[^a-zA-Z0-9_-]/g, "_")}`)
+      .forEach((el) => el.classList.add("rc-label--visible"));
+
+    // Auto-hide after 2.5 seconds of no movement
+    labelHideTimers.current[remoteName] = setTimeout(() => {
+      labelVisible.current[remoteName] = false;
+      document
+        .querySelectorAll(`.rc-label-${remoteName.replace(/[^a-zA-Z0-9_-]/g, "_")}`)
+        .forEach((el) => el.classList.remove("rc-label--visible"));
+    }, 2500);
   }
 
   function updateRemoteCursor({ username: remoteName, lineNumber, column }) {
@@ -238,12 +319,16 @@ export default function CodeEditor({ roomId, username = "Anonymous", onReady, in
     const monaco = monacoRef.current;
     if (!editor || !monaco) return;
 
-    const className = getCursorClassNameForUser(remoteName);
+    const { lineClass, labelClass } = getCursorClassesForUser(remoteName);
+
     const decoration = [
       {
         range: new monaco.Range(lineNumber, column, lineNumber, column),
         options: {
-          afterContentClassName: `remote-cursor-decoration ${className}`,
+          // The cursor line rendered via afterContentClassName
+          afterContentClassName: `rc-line ${lineClass}`,
+          // The label rendered via beforeContentClassName (sits before the cursor char)
+          beforeContentClassName: `rc-label ${labelClass}`,
           stickiness: monaco.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges,
         },
       },
@@ -252,6 +337,9 @@ export default function CodeEditor({ roomId, username = "Anonymous", onReady, in
     const oldDecorations = remoteCursorDecorations.current[remoteName] || [];
     const newDecorations = editor.deltaDecorations(oldDecorations, decoration);
     remoteCursorDecorations.current[remoteName] = newDecorations;
+
+    // Show the username label and start hide timer
+    showLabel(remoteName);
   }
 
   // ── Editor mount ─────────────────────────────────────────────────────────────
@@ -377,9 +465,9 @@ export default function CodeEditor({ roomId, username = "Anonymous", onReady, in
         <span className="lang-toolbar-hint">Language applies to all collaborators</span>
       </div>
 
-      {/* Monaco Editor */}
+      {/* Monaco Editor — fills remaining height inside the flex column */}
       <Editor
-        height="calc(80vh - 40px)"
+        height="100%"
         language={language}
         theme="vs-dark"
         defaultValue=""
