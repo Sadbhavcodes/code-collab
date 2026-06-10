@@ -7,6 +7,7 @@ import java.util.List;
 @lombok.Setter
 public class CodeEditorState {
     private String code;
+    private String language = "javascript"; // default language
 
     /**
      * All individual Yjs updates (base64-encoded) received so far, stored in

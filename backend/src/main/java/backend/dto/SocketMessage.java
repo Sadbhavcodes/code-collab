@@ -25,6 +25,7 @@ public class SocketMessage {
     private String update;
     private String code;
     private List<String> yjsUpdates;
+    private String language;
 
     public SocketMessage() {
     }

@@ -126,6 +126,7 @@ public class RoomService {
         // can replay them all via Y.applyUpdate and arrive at the correct state.
         if (room.getCodeEditorState() != null) {
             socketMessage.setYjsUpdates(room.getCodeEditorState().getYjsUpdates());
+            socketMessage.setLanguage(room.getCodeEditorState().getLanguage());
         }
 
         String json = objectMapper.writeValueAsString(socketMessage);

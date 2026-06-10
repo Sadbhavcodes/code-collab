@@ -1,4 +1,4 @@
-﻿import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import Editor from "@monaco-editor/react";
 import * as Y from "yjs";
 import { MonacoBinding } from "y-monaco";
@@ -9,6 +9,13 @@ import {
   sendMessage,
   getSocket,
 } from "../services/websocketService";
+
+const LANGUAGES = [
+  { id: "javascript", label: "JavaScript", icon: "JS" },
+  { id: "python",     label: "Python",     icon: "PY" },
+  { id: "java",       label: "Java",       icon: "☕" },
+  { id: "cpp",        label: "C++",        icon: "C+" },
+];
 
 const CURSOR_COLORS = [
   "#f97316", "#3b82f6", "#22c55e", "#e11d48", "#a855f7",
@@ -43,7 +50,7 @@ function decodeUpdate(base64) {
   return bytes;
 }
 
-export default function CodeEditor({ roomId, username = "Anonymous", onReady }) {
+export default function CodeEditor({ roomId, username = "Anonymous", onReady, initialLanguage = "javascript", onLanguageChange }) {
   const editorRef = useRef(null);
   const monacoRef = useRef(null);
   const ydocRef = useRef(null);
@@ -52,6 +59,11 @@ export default function CodeEditor({ roomId, username = "Anonymous", onReady }) 
   const remoteCursorDecorations = useRef({});
   const userCursorClasses = useRef(new Map());
   const cursorStyleSheet = useRef(null);
+
+  // Language state — shared across all room members
+  const [language, setLanguage] = useState(initialLanguage);
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const dropdownRef = useRef(null);
 
   // Stable object used as Yjs update origin to mark remote-applied updates
   // so we don't re-broadcast them back to the server.
@@ -133,6 +145,11 @@ export default function CodeEditor({ roomId, username = "Anonymous", onReady }) 
 
     function handleRoomState(data) {
       if (!data) return;
+      // Restore language persisted on the server for this room
+      if (data.language) {
+        setLanguage(data.language);
+        if (onLanguageChange) onLanguageChange(data.language);
+      }
       // yjsUpdates is the ordered list of all Yjs updates stored by the backend.
       // Apply each one individually — Yjs CRDT deduplicates automatically.
       const updates = data.yjsUpdates;
@@ -161,14 +178,28 @@ export default function CodeEditor({ roomId, username = "Anonymous", onReady }) 
       updateRemoteCursor(data);
     }
 
+    function handleLanguageChangeMessage(data) {
+      if (!data?.language) return;
+      setLanguage(data.language);
+      // Also update Monaco model language in real time
+      const editor = editorRef.current;
+      const monaco = monacoRef.current;
+      if (editor && monaco) {
+        monaco.editor.setModelLanguage(editor.getModel(), data.language);
+      }
+      if (onLanguageChange) onLanguageChange(data.language);
+    }
+
     subscribe("ROOM_STATE", handleRoomState);
     subscribe("YJS_UPDATE", handleYjsUpdateMessage);
     subscribe("CURSOR_MOVE", handleCursorMoveMessage);
+    subscribe("LANGUAGE_CHANGE", handleLanguageChangeMessage);
 
     return () => {
       unsubscribe("ROOM_STATE", handleRoomState);
       unsubscribe("YJS_UPDATE", handleYjsUpdateMessage);
       unsubscribe("CURSOR_MOVE", handleCursorMoveMessage);
+      unsubscribe("LANGUAGE_CHANGE", handleLanguageChangeMessage);
     };
   }, [roomId, username]);
 
@@ -275,14 +306,86 @@ export default function CodeEditor({ roomId, username = "Anonymous", onReady }) 
     minimap: { enabled: false },
   };
 
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    function handleClickOutside(e) {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
+        setDropdownOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  function handleLanguageSelect(lang) {
+    setDropdownOpen(false);
+    if (lang === language) return;
+    setLanguage(lang);
+    // Update Monaco model language immediately for this user
+    const editor = editorRef.current;
+    const monaco = monacoRef.current;
+    if (editor && monaco) {
+      monaco.editor.setModelLanguage(editor.getModel(), lang);
+    }
+    // Broadcast to room
+    const socket = getSocket();
+    if (socket && socket.readyState === WebSocket.OPEN) {
+      sendMessage({
+        type: "LANGUAGE_CHANGE",
+        roomId,
+        sender: username,
+        language: lang,
+      });
+    }
+    if (onLanguageChange) onLanguageChange(lang);
+  }
+
+  const currentLang = LANGUAGES.find((l) => l.id === language) || LANGUAGES[0];
+
   return (
-    <Editor
-      height="80vh"
-      language="javascript"
-      theme="vs-dark"
-      defaultValue=""
-      onMount={handleEditorDidMount}
-      options={editorOptions}
-    />
+    <div className="editor-with-toolbar">
+      {/* Language picker toolbar */}
+      <div className="lang-toolbar">
+        <div className="lang-picker" ref={dropdownRef}>
+          <button
+            className="lang-picker-btn"
+            onClick={() => setDropdownOpen((o) => !o)}
+            title="Change editor language"
+          >
+            <span className="lang-icon">{currentLang.icon}</span>
+            <span className="lang-label">{currentLang.label}</span>
+            <span className="lang-chevron" style={{ transform: dropdownOpen ? "rotate(180deg)" : "rotate(0deg)" }}>▾</span>
+          </button>
+          {dropdownOpen && (
+            <ul className="lang-dropdown" role="listbox">
+              {LANGUAGES.map((lang) => (
+                <li
+                  key={lang.id}
+                  className={`lang-option${lang.id === language ? " active" : ""}`}
+                  onClick={() => handleLanguageSelect(lang.id)}
+                  role="option"
+                  aria-selected={lang.id === language}
+                >
+                  <span className="lang-option-icon">{lang.icon}</span>
+                  <span>{lang.label}</span>
+                  {lang.id === language && <span className="lang-check">✓</span>}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+        <span className="lang-toolbar-hint">Language applies to all collaborators</span>
+      </div>
+
+      {/* Monaco Editor */}
+      <Editor
+        height="calc(80vh - 40px)"
+        language={language}
+        theme="vs-dark"
+        defaultValue=""
+        onMount={handleEditorDidMount}
+        options={editorOptions}
+      />
+    </div>
   );
 }

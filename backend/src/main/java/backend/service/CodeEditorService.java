@@ -87,4 +87,35 @@ public class CodeEditorService {
             }
         }
     }
+    public void handleLanguageChange(SocketMessage socketMessage, WebSocketSession session) throws IOException {
+        Room room = roomService.getRoom(socketMessage.getRoomId());
+        if (room == null) return;
+
+        // Lazily create state and persist the language
+        if (room.getCodeEditorState() == null) {
+            room.setCodeEditorState(new CodeEditorState());
+        }
+        if (socketMessage.getLanguage() != null) {
+            room.getCodeEditorState().setLanguage(socketMessage.getLanguage());
+        }
+
+        // Broadcast to all other sessions in the room
+        SocketMessage response = new SocketMessage();
+        response.setType("LANGUAGE_CHANGE");
+        response.setRoomId(socketMessage.getRoomId());
+        response.setSender(socketMessage.getSender());
+        response.setLanguage(socketMessage.getLanguage());
+
+        String jsonMessage = objectMapper.writeValueAsString(response);
+        for (WebSocketSession s : room.getSessions()) {
+            if (s == session || !s.isOpen()) continue;
+            synchronized (s) {
+                try {
+                    s.sendMessage(new TextMessage(jsonMessage));
+                } catch (IllegalStateException e) {
+                    System.out.println("Failed to send LANGUAGE_CHANGE to session " + s.getId() + ": " + e.getMessage());
+                }
+            }
+        }
+    }
 }

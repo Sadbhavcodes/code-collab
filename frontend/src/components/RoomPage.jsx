@@ -1,9 +1,11 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import CodeEditor from "./CodeEditor";
 import ChatPanel from "./ChatPanel";
 import { sendMessage, disconnectSocket } from "../services/websocketService";
 
 export default function RoomPage({ roomId, username, onLeave }) {
+  const [activeLanguage, setActiveLanguage] = useState("javascript");
+
   useEffect(() => {
     // Component mounted for the room
     return () => {
@@ -17,6 +19,13 @@ export default function RoomPage({ roomId, username, onLeave }) {
     // preventing connectSocket() from reusing a CLOSING socket on rejoin
     disconnectSocket();
     onLeave();
+  };
+
+  const LANG_LABELS = {
+    javascript: "JavaScript",
+    python: "Python",
+    java: "Java",
+    cpp: "C++",
   };
 
   return (
@@ -42,7 +51,11 @@ export default function RoomPage({ roomId, username, onLeave }) {
             </div>
           </div>
           <div className="editor-body">
-            <CodeEditor roomId={roomId} username={username} />
+            <CodeEditor
+              roomId={roomId}
+              username={username}
+              onLanguageChange={setActiveLanguage}
+            />
           </div>
         </div>
 
@@ -57,6 +70,10 @@ export default function RoomPage({ roomId, username, onLeave }) {
         <span className="statusbar-item">⚡ Latency: 14ms</span>
         <span className="statusbar-item">🔒 E2E Encrypted</span>
         <span className="statusbar-spacer" />
+        <span className="statusbar-item statusbar-lang">
+          <span className="statusbar-lang-dot" />
+          {LANG_LABELS[activeLanguage] || activeLanguage}
+        </span>
         <span className="statusbar-item">Room: {roomId}</span>
         <button className="btn-leave" onClick={handleLeave}>Leave</button>
       </div>
