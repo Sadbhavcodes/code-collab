@@ -1,6 +1,25 @@
 let socket = null;
 const listeners = {};
 const pendingConnectedCallbacks = [];
+let heartbeatInterval = null;
+
+const HEARTBEAT_INTERVAL_MS = 25000;
+
+function startHeartbeat() {
+    stopHeartbeat();
+    heartbeatInterval = setInterval(() => {
+        if (socket && socket.readyState === WebSocket.OPEN) {
+            socket.send(JSON.stringify({ type: "PING" }));
+        }
+    }, HEARTBEAT_INTERVAL_MS);
+}
+
+function stopHeartbeat() {
+    if (heartbeatInterval) {
+        clearInterval(heartbeatInterval);
+        heartbeatInterval = null;
+    }
+}
 
 export function subscribe(type, callback) {
     if (!listeners[type]) {
@@ -35,6 +54,7 @@ export function connectSocket(onConnected) {
 
     socket.onopen = () => {
         console.log("WebSocket connected");
+        startHeartbeat();
         if (onConnected) onConnected();
         // Flush any callbacks that were queued during CONNECTING
         while (pendingConnectedCallbacks.length > 0) {
@@ -45,6 +65,7 @@ export function connectSocket(onConnected) {
 
     socket.onclose = () => {
         console.log("WebSocket disconnected");
+        stopHeartbeat();
         socket = null;
     };
 
@@ -58,6 +79,7 @@ export function connectSocket(onConnected) {
 }
 
 export function disconnectSocket() {
+    stopHeartbeat();
     if (socket) {
         // Null it out immediately so connectSocket() won't reuse a CLOSING socket
         const s = socket;
